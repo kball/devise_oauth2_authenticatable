@@ -17,33 +17,59 @@ module Devise #:nodoc:
         #
         def valid?
           
-         valid_controller? && valid_params? && mapping.to.respond_to?('authenticate_with_oauth2') 
+         (valid_params? || valid_cookie?) && mapping.to.respond_to?('authenticate_with_oauth2') 
           
         end
 
+        def fb_cookie
+          cookies["fbs_#{Devise.oauth2_client.id}"]
+        end
+
+        def fb_cookie_hash
+          @fb_cookie_hash ||= begin
+            hash = {}
+            if fb_cookie.present?
+              fb_cookie.split('&').each do |pair|
+                key, val = pair.split('=')
+                hash[key] = value
+              end
+            end
+            hash
+          end
+          
+        end
         # Authenticate user with OAuth2 
         #
         def authenticate!
           klass = mapping.to
           begin
-
-
+            Rails.logger.info("in authenticate!")
             # Verify User Auth code and get access token from auth server: will error on failue
-            access_token = Devise::oauth2_client.web_server.get_access_token(
-                    params[:code], :redirect_uri => Devise::session_sign_in_url(request,mapping)
-                  )
-                  
-            # retrieve user attributes     
-            
-            # Get user details from OAuth2 Service    
-            # NOTE: Facebook Graph Specific
-            # TODO: break this out into separate model or class to handle 
-            # different oauth2 providers
-            oauth2_user_attributes = JSON.parse(access_token.get('/me')) 
-      
-            user = klass.authenticate_with_oauth2(oauth2_user_attributes['id'], access_token.token)
+            #
+            oauth2_user_attributes = {}
+            token = nil
+            id = nil
 
+            if fb_cookie_hash.empty?
+              access_token = Devise::oauth2_client.web_server.get_access_token(
+                      params[:code], :redirect_uri => Devise::session_sign_in_url(request,mapping)
+                    )
 
+              # retrieve user attributes     
+
+              # Get user details from OAuth2 Service    
+              # NOTE: Facebook Graph Specific
+              # TODO: break this out into separate model or class to handle 
+              # different oauth2 providers
+              oauth2_user_attributes = JSON.parse(access_token.get('/me')) 
+
+              id = oauth2_user_attributes['id']
+              token = access_token.token
+            else
+              id = fb_cookie_hash['uid']
+              token = fb_cookie_hash['access_token']
+            end
+            user = klass.authenticate_with_oauth2(id, token)
 
             if user.present?
               user.on_after_oauth2_connect(oauth2_user_attributes)
@@ -55,8 +81,8 @@ module Devise #:nodoc:
                 
                 user = returning(klass.new) do |u|
                   u.store_oauth2_credentials!(
-                      :token => access_token.token,
-                      :uid => oauth2_user_attributes['id']
+                      :token => token,
+                      :uid => id
                     )
                   u.on_before_oauth2_auto_create(oauth2_user_attributes)
                 end
@@ -93,6 +119,10 @@ module Devise #:nodoc:
 
           def valid_params?
             params[:code].present?
+          end
+
+          def valid_cookie?
+            fb_cookie.present?
           end
 
       end
