@@ -30,7 +30,7 @@ module Devise #:nodoc:
             hash = {}
             if fb_cookie.present?
               fb_cookie.split('&').each do |pair|
-                key, val = pair.split('=')
+                key, value = pair.split('=')
                 hash[key] = value
               end
             end
